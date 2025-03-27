@@ -1,56 +1,50 @@
-import abi from "../../contracts/abi.js";
-import axios from "axios";
 import { ethers } from "ethers";
 
-const delay = (ms) => new Promise((res) => setTimeout(res, ms));
+const abi = [
+  {"inputs":[],"name":"count","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"increment","outputs":[],"stateMutability":"nonpayable","type":"function"}
+];
 
-async function contractExecuteFcn(walletData, contractAddress) {
-	console.log(`\n=======================================`);
-	console.log(`- Executing the smart contract...🟠`);
+const contractExecuteFcn = async (walletData, contractAddress) => {
+  console.log(`\n=======================================`);
+  console.log(`- Executing the smart contract...`);
+  console.log("Wallet Data received:", walletData);
 
-	// ETHERS PROVIDER AND SIGNER
-	const provider = walletData[1];
-	const signer = provider.getSigner();
+  const provider = walletData.provider;
+  const signer = provider.getSigner();
 
-	// EXECUTE THE SMART CONTRACT
-	let txHash;
-	let finalCount;
-	try {
-		// CHECK SMART CONTRACT STATE
-		const initialCount = await getCountState();
-		console.log(`- Initial count: ${initialCount}`);
+  let txHash;
+  let finalCount;
+  const maxRetries = 5;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const myContract = new ethers.Contract(contractAddress, abi, signer);
 
-		// EXECUTE CONTRACT FUNCTION
-		const gasLimit = 100000;
-		const myContract = new ethers.Contract(contractAddress, abi, signer);
-		const incrementTx = await myContract.increment({ gasLimit: gasLimit });
-		const incrementRx = await incrementTx.wait();
-		txHash = incrementRx.transactionHash;
+      // CHECK INITIAL STATE
+      const initialCount = (await myContract.count()).toString();
+      console.log(`- Attempt ${attempt} - Initial count: ${initialCount}`);
 
-		// CHECK SMART CONTRACT STATE AGAIN
-		await delay(5000); // DELAY TO ALLOW MIRROR NODES TO UPDATE BEFORE QUERYING
+      // EXECUTE INCREMENT
+      const incrementTx = await myContract.increment({ gasLimit: 1000000 });
+      const incrementRx = await incrementTx.wait();
+      txHash = incrementRx.transactionHash;
 
-		finalCount = await getCountState();
-		console.log(`- Final count: ${finalCount}`);
-		console.log(`- Contract executed. Transaction hash: \n${txHash} ✅`);
-	} catch (executeError) {
-		console.log(`- ${executeError.message.toString()}`);
-	}
+      // CHECK FINAL STATE
+      finalCount = (await myContract.count()).toString();
+      console.log(`- Attempt ${attempt} - Final count: ${finalCount}`);
+      console.log(`- Contract executed. Transaction hash: \n${txHash} `);
+      break; // Exit on success
+    } catch (executeError) {
+      console.log(`- Attempt ${attempt} failed:`, executeError);
+      if (attempt === maxRetries) {
+        console.log(`- All retries exhausted`);
+        return [undefined, undefined];
+      }
+      await new Promise(res => setTimeout(res, 3000)); // Wait 3s before retry
+    }
+  }
 
-	return [txHash, finalCount];
-
-	async function getCountState() {
-		let countDec;
-		const countInfo = await axios.get(`https://${walletData[2]}.mirrornode.hedera.com/api/v1/contracts/${contractAddress}/state`);
-
-		if (countInfo.data.state[0] !== undefined) {
-			const countHex = countInfo.data.state[0].value;
-			countDec = parseInt(countHex, 16);
-		} else {
-			countDec = 0;
-		}
-		return countDec;
-	}
-}
+  return [txHash, finalCount];
+};
 
 export default contractExecuteFcn;

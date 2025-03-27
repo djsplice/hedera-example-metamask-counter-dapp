@@ -1,52 +1,42 @@
 import { ethers } from "ethers";
-const network = "testnet";
 
-async function walletConnectFcn() {
-	console.log(`\n=======================================`);
+const walletConnectFcn = async () => {
+  console.log("=======================================");
+  console.log("Initializing provider...");
+  const provider = new ethers.providers.Web3Provider(window.ethereum);
+  console.log("Provider initialized:", !!provider);
 
-	// ETHERS PROVIDER
-	const provider = new ethers.providers.Web3Provider(window.ethereum, "any");
+  console.log("- Switching network to Hedera Private...");
+  try {
+    await window.ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: "0x12a" }],
+    });
+  } catch (switchError) {
+    if (switchError.code === 4902) {
+      console.log("- Network not found, adding Hedera Private...");
+      await window.ethereum.request({
+        method: "wallet_addEthereumChain",
+        params: [{
+          chainId: "0x12a",
+          chainName: "Hedera Private",
+          rpcUrls: ["http://localhost:7546"],
+          nativeCurrency: {
+            name: "HBAR",
+            symbol: "ℏ",
+            decimals: 18,
+          },
+          blockExplorerUrls: ["http://localhost:5551"],
+        }],
+      });
+    } else {
+      throw switchError;
+    }
+  }
 
-	// SWITCH TO HEDERA TEST NETWORK
-	console.log(`- Switching network to the Hedera ${network}...🟠`);
-	let chainId;
-	if (network === "testnet") {
-		chainId = "0x128";
-	} else if (network === "previewnet") {
-		chainId = "0x129";
-	} else {
-		chainId = "0x127";
-	}
-
-	await window.ethereum.request({
-		method: "wallet_addEthereumChain",
-		params: [
-			{
-				chainName: `Hedera ${network}`,
-				chainId: chainId,
-				nativeCurrency: { name: "HBAR", symbol: "ℏℏ", decimals: 18 },
-				rpcUrls: [`https://${network}.hashio.io/api`],
-				blockExplorerUrls: [`https://hashscan.io/${network}/`],
-			},
-		],
-	});
-	console.log("- Switched ✅");
-
-	// CONNECT TO ACCOUNT
-	console.log("- Connecting wallet...🟠");
-	let selectedAccount;
-	await provider
-		.send("eth_requestAccounts", [])
-		.then((accounts) => {
-			selectedAccount = accounts[0];
-			console.log(`- Selected account: ${selectedAccount} ✅`);
-		})
-		.catch((connectError) => {
-			console.log(`- ${connectError.message.toString()}`);
-			return;
-		});
-
-	return [selectedAccount, provider, network];
-}
+  console.log("- Requesting accounts...");
+  const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+  return { provider, accounts };
+};
 
 export default walletConnectFcn;
